@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mapa de Calor - Posições WMS (Consolidado)</title>
+    
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css">
+    
+    <style>
+        /* ==========================================================================
+           ESTILOS VISUAIS (BASEADO NO INDEX2 / MAPA_CALOR2)
+           ========================================================================== */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f5f5;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 100%;
+            margin: 0 auto;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1 );
+            padding: 30px;
+        }
+
+        header {
+            position: relative;
+            margin-bottom: 30px;
+            border-bottom: 3px solid #2c3e50;
+            padding-bottom: 20px;
+        }
+        
+        h1 {
+            font-size: 32px;
+            color: #2c3e50;
+            font-weight: 700;
+            text-align: center;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            line-height: 1.2;
+        }
+
+        /* --- ALTERAÇÃO: ESTILO DO SUBTÍTULO DINÂMICO --- */
+        h1 span#subtituloData {
+            font-size: 18px;
+            font-weight: 600;
+            color: #e67e22; /* Laranja para destaque */
+            margin-top: 5px;
+        }
+
+        .logo {
+            position: absolute;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            height: 60px;
+            width: auto;
+        }
+
+        /* --- CONTROLES E FILTROS --- */
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 30px;
+            padding: 20px;
+            background-color: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            border: 1px solid #e0e0e0;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            flex-basis: 200px;
+            flex-grow: 1;
+            max-width: 300px;
+        }
+
+        .control-group label {
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #2c3e50;
+            font-size: 14px;
+        }
+
+        .control-group select,
+        .control-group input[type="text"] {
+            padding: 10px;
+            border: 1px solid #bdc3c7;
+            border-radius: 6px;
+            font-size: 14px;
+            background-color: #f7f7f7;
+            cursor: pointer;
+            transition: border-color 0.3s, box-shadow 0.3s;
+        }
+
+        .control-group select:focus,
+        .control-group input:focus {
+            outline: none;
+            border-color: #3498db;
+            background-color: white;
+            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.2);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+            flex-basis: 100%;
+            justify-content: center;
+        }
+
+        button {
+            padding: 12px 24px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: background-color 0.3s ease;
+        }
+
+        button:hover {
+            background-color: #2980b9;
+        }
+
+        button.reset {
+            background-color: #95a5a6;
+            color: #2c3e50;
+        }
+
+        button.reset:hover {
+            background-color: #7f8c8d;
+            color: white;
+        }
+
+        /* --- LEGENDA --- */
+        .legend {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            margin-bottom: 30px;
+            padding: 15px;
+            background-color: #ecf0f1;
+            border-radius: 6px;
+            flex-wrap: wrap;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 13px;
+        }
+
+        .legend-color {
+            width: 30px;
+            height: 30px;
+            border-radius: 4px;
+            border: 1px solid #bdc3c7;
+        }
+
+        /* --- PAINEL DE ESTATÍSTICAS --- */
+        .info-panel {
+            margin-top: 30px;
+            padding: 20px;
+            background-color: #ecf0f1;
+            border-radius: 6px;
+            border-left: 4px solid #3498db;
+        }
+
+        .info-panel h3 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+            font-size: 20px;
+            text-align: center;
+        }
+
+        .info-panel p {
+            color: #555;
+            line-height: 1.6;
+            font-size: 14px;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .stat-item {
+            background-color: white;
+            padding: 15px;
+            border-radius: 4px;
+            text-align: center;
+            border: 1px solid #bdc3c7;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #7f8c8d;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #2c3e50;
+        }
+
+        .stat-detail {
+            font-size: 13px;
+            color: #3498db;
+            font-weight: 600;
+            margin-top: 5px;
+            height: 1.2em;
+            word-break: keep-all;
+        }
+
+        /* --- MAPA E GRID --- */
+        .mapa-container {
+            overflow-x: auto;
+            margin-top: 30px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            padding: 20px;
+            background-color: #fafafa;
+            min-height: 600px;
+        }
+
+        .ruas-grid {
+            display: flex;
+            gap: 10px;
+            padding-bottom: 10px;
+        }
+
+        .rua {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 150px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: 5px;
+            background-color: #fff;
+            flex-grow: 1;
+        }
+
+        .rua-titulo {
+            font-weight: 700;
+            font-size: 16px;
+            color: #2c3e50;
+            padding: 5px 0;
+            margin-bottom: 10px;
+            border-bottom: 2px solid #3498db;
+            width: 100%;
+            text-align: center;
+        }
+
+        .rua-content {
+            display: flex;
+            flex-direction: row;
+            gap: 5px;
+            height: 100%;
+        }
+
+        .lado {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+            padding: 5px;
+            border: 1px dashed #bdc3c7;
+            border-radius: 4px;
+            height: 100%;
+        }
+
+        .lado-label {
+            font-weight: 600;
+            font-size: 11px;
+            color: #7f8c8d;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 5px;
+        }
+
+        .predios {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            justify-content: flex-end;
+            height: 100%;
+        }
+
+        .predio {
+            width: 60px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid #bdc3c7;
+            border-radius: 2px;
+            font-weight: 600;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            background-color: white;
+            color: #2c3e50;
+            position: relative;
+        }
+        
+        .predio.selecionado {
+            border-width: 3px;
+            border-color: #0004ff;
+            box-shadow: 0 0 10px rgba(86, 60, 231, 0.7);
+            transform: scale(1.05);
+        }
+
+        .predio:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 10000;
+        }
+
+        .predio.sem-dados {
+            background-color: #ecf0f1;
+            color: #95a5a6;
+            cursor: not-allowed;
+            border-color: #bdc3c7;
+        }
+
+        .predio.sem-dados:hover {
+            transform: none;
+            box-shadow: none;
+        }
+
+        
+        .predio.par {
+            border: 1px solid #bdc3c7;
+            border-bottom: 3px solid #3498db;
+            background-color: white;
+        }
+
+        .predio.par:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .predio.par .predio-tooltip::after {
+            border-top-color: #3498db;
+        }
+
+        /* --- TOOLTIP --- */
+        .predio-tooltip {
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #2c3e50;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            white-space: nowrap;
+            margin-bottom: 8px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+            z-index: 9999;
+        }
+
+        .predio:hover .predio-tooltip {
+            opacity: 1;
+        }
+
+        .predio-tooltip::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 5px solid transparent;
+            border-top-color: #2c3e50;
+        }
+
+        /* --- LOADING E ERRO --- */
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 40px;
+            color: #3498db;
+            font-size: 16px;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .error {
+            display: none;
+            background-color: #e74c3c;
+            color: white;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        .error.active {
+            display: block;
+        }
+
+        /* --- SIDEBAR (Opcional, mantido do layout original) --- */
+        .sidebar {
+            height: 100%;
+            width: 0;
+            position: fixed;
+            z-index: 1;
+            top: 0;
+            right: 0;
+            background-color: #111;
+            overflow-x: hidden;
+            transition: 0.5s;
+            padding-top: 60px;
+        }
+        .sidebar a {
+            padding: 8px 8px 8px 32px;
+            text-decoration: none;
+            font-size: 25px;
+            color: #818181;
+            display: block;
+            transition: 0.3s;
+        }
+        .sidebar .closebtn {
+            position: absolute;
+            top: 0;
+            right: 25px;
+            font-size: 36px;
+            margin-left: 50px;
+        }
+
+        /* --- DETALHES (TABELA PIVOT) --- */
+        .detalhes-container {
+            margin-top: 30px;
+            padding: 20px;
+            background-color: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            display: none; /* Começa escondido */
+        }
+
+        .detalhes-container h3 {
+            font-size: 20px;
+            color: #2c3e50;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .detalhes-container h3 button {
+            font-size: 12px;
+            padding: 5px 10px;
+            background-color: #e74c3c;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .detalhes-container h3 button:hover {
+            background-color: #c0392b;
+        }
+
+        .tabela-detalhes-container {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+        }
+
+        table.detalhes {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        table.detalhes thead {
+            position: sticky;
+            top: 0;
+            background-color: #f5f5f5;
+            z-index: 10;
+        }
+
+        table.detalhes th, table.detalhes td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #e0e0e0;
+            text-align: left;
+        }
+
+        table.detalhes th {
+            font-weight: 600;
+            color: #555;
+        }
+
+        table.detalhes tbody tr:nth-child(even) {
+            background-color: #fcfcfc;
+        }
+        
+        table.detalhes tbody tr:hover {
+            background-color: #f0f8ff;
+        }
+
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>
+                MAPA DE CALOR - POSIÇÕES WMS
+                <span id="subtituloData">Aguardando dados...</span>
+            </h1>
+    
+            <img src="Logotipo-cores-institucionais-vetorizada.jpg" alt="Logo" class="logo" onerror="this.style.display='none'">
+        </header>
+
+        <div class="error" id="errorMessage"></div>
+        <div class="loading" id="loading">Carregando e processando arquivos Excel (Endereços + Movimentações)...</div>
+
+        <div class="controls">
+            <div class="control-group">
+                <label for="dataInicial">Data Inicial:</label>
+                <input type="text" id="dataInicial" placeholder="Selecione data inicial">
+            </div>
+            <div class="control-group">
+                <label for="dataFinal">Data Final:</label>
+                <input type="text" id="dataFinal" placeholder="Selecione data final">
+            </div>
+            <div class="control-group">
+                <label for="tipoMovimento">Filtrar por Tipo de Movimento:</label>
+                <select id="tipoMovimento">
+                    <option value="">Todos</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="picking">Filtrar por Picking:</label>
+                <select id="picking">
+                    <option value="">Todos</option>
+                    <option value="Sim">Sim</option>
+                    <option value="Não">Não</option>
+                </select>
+            </div>
+            
+            <div class="control-group">
+                <label for="curva">Classificação ABC (Dinâmica):</label>
+                <select id="curva">
+                    <option value="">Todas as Classificações</option>
+                    <option value="A">Curva A (80% Volume)</option>
+                    <option value="B">Curva B (15% Volume)</option>
+                    <option value="C">Curva C (5% Volume)</option>
+                </select>
+            </div>
+            <div class="button-group">
+                <button id="aplicarFiltros">Aplicar Filtros</button>
+                <button id="resetarFiltros" class="reset">Resetar Filtros</button>
+            </div>
+        </div>
+
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: rgb(255, 255, 255);"></div>
+                <span>Mínimo</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: rgb(255, 255, 0);"></div>
+                <span>Baixo</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: rgb(255, 165, 0);"></div>
+                <span>Médio</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: rgb(255, 69, 0);"></div>
+                <span>Alto</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: rgb(255, 0, 0);"></div>
+                <span>Máximo</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: rgba(200, 200, 200, 0.3);"></div>
+                <span>Sem Dados</span>
+            </div>
+        </div>
+
+        <div class="info-panel">
+            <h3>Estatísticas Atuais</h3>
+            <div class="stats">
+                <div class="stat-item">
+                    <div class="stat-label">Valor Mínimo</div>
+                    <div class="stat-value" id="minValue">-</div>
+                    <div class="stat-detail" id="minLocal">-</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Valor Máximo</div>
+                    <div class="stat-value" id="maxValue">-</div>
+                    <div class="stat-detail" id="maxLocal">-</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Valor Médio</div>
+                    <div class="stat-value" id="avgValue">-</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Posições com Movimento</div>
+                    <div class="stat-value" id="totalPositions">0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Total de Movimentos</div>
+                    <div class="stat-value" id="totalMovements">-</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="mapa-container">
+            <div class="ruas-grid" id="mapaContainer">
+                </div>
+        </div>
+        
+        <div class="detalhes-container" id="detalhesContainer">
+            </div>
+
+    </div>
+
+    <div id="sidebar" class="sidebar">
+        <a href="javascript:void(0)" class="closebtn" onclick="toggleSidebar()">&times;</a>
+        <a href="#">Opção 1</a>
+        <a href="#">Opção 2</a>
+        <a href="#">Opção 3</a>
+    </div>
+
+    <script>
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('open');
+        }
+    </script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/l10n/pt.js"></script>
+    
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    
+    <script src="mapa_calor.js"></script>
+</body>
+</html>
