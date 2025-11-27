@@ -2,7 +2,7 @@
 // 1. CONFIGURAÇÃO & ESTRUTURA
 // =========================================================================
 
-const RUAS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+const RUAS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 50];
 
 const CONFIG = {
     arquivos: {
@@ -76,22 +76,31 @@ const processarData = (v) => {
 };
 
 /**
- * Função auxiliar para agrupar prédios da Rua 1 (71-129) de 4 em 4.
- * Converte um prédio real (ex: 73) no seu "pai" visual (ex: 71).
+ * Lógica Central de Agrupamento Visual.
+ * Determina qual ID será desenhado no mapa.
+ * - Rua 50: Retorna o APARTAMENTO como se fosse prédio.
+ * - Rua 1 (71-129): Agrupa prédios de 4 em 4.
+ * - Outras: Retorna o prédio normal.
  */
-function obterPredioAgrupado(rua, predio) {
+function obterVisualId(rua, predio, apto) {
     const r = parseInt(rua);
     const p = parseInt(predio);
+    const a = parseInt(apto) || 0;
 
-    // Regra específica: Rua 1, Ímpar, range 71 a 129
+    // REGRA RUA 50: O Apartamento vira o ID Visual
+    if (r === 50) {
+        return a;
+    }
+
+    // REGRA RUA 1: Agrupamento 71-129 (Ímpar)
     if (r === 1 && p >= 71 && p <= 129 && p % 2 !== 0) {
         const base = 71;
-        // 4 prédios ímpares (ex: 71, 73, 75, 77) cobrem 8 unidades numéricas (77-71 = 6, mas o range do loop é 8)
         const passo = 8; 
         const grupo = Math.floor((p - base) / passo);
         return base + (grupo * passo);
     }
-    return p; // Para todos os outros casos, retorna o próprio prédio
+
+    return p; // Padrão
 }
 
 // ===================================================================
@@ -107,14 +116,24 @@ function getEstruturaPredios() {
         let prediosImpar = [];
         let prediosPar = [];
         
-        if (rua === 1) {
-            // Até o 69, segue normal (de 2 em 2)
-            for (let i = 41; i <= 69; i += 2) prediosImpar.push(i);
+        if (rua === 50) {
+            // === CONFIGURAÇÃO RUA 50 (Visualizacao por Apartamento) ===
+            // Lado Ímpar: Apartamentos 101 ao 112 (Sequencial)
+            for (let i = 101; i <= 112; i++) prediosImpar.push(i);
             
-            // Do 71 ao 129, agrupa de 4 em 4 (pula de 8 em 8 números: 71, 79, 87...)
+            // Lado Par: Apartamentos 201 ao 217 (Sequencial)
+            for (let i = 201; i <= 217; i++) prediosPar.push(i);
+
+        } else if (rua === 1) {
+            // Rua 1 Normal
+            for (let i = 41; i <= 69; i += 2) prediosImpar.push(i);
+            // Rua 1 Agrupada
             for (let i = 71; i <= 129; i += 8) prediosImpar.push(i);
             
+            // Rua 1 Par
             prediosPar = Array.from({ length: 5 }, (_, i) => 48 + i * 2);
+            prediosPar.push(70);
+            
         } else if (rua === 2) {
             for (let i = 3; i <= 46; i += 2) prediosImpar.push(i);
             for (let i = 2; i <= 46; i += 2) prediosPar.push(i);
@@ -125,8 +144,8 @@ function getEstruturaPredios() {
         
         estrutura[rua] = { Impar: prediosImpar, Par: prediosPar };
 
-        [...prediosImpar, ...prediosPar].forEach(predio => {
-            mapaVisualValido.add(`${rua}-${predio}`);
+        [...prediosImpar, ...prediosPar].forEach(idVisual => {
+            mapaVisualValido.add(`${rua}-${idVisual}`);
         });
     }
     return estrutura;
@@ -210,6 +229,7 @@ async function iniciarSistema() {
             const a = normalizar(row[cols.apto]);
 
             if (r && p) {
+                // Aqui mantemos os dados REAIS. A conversão visual acontece na renderização.
                 const key = `${r}-${p}-${n}-${a}`;
                 const info = mapaRef[key] || { picking: 'Indefinido' };
                 const dataProc = processarData(row[cols.data]);
@@ -217,8 +237,8 @@ async function iniciarSistema() {
                 dadosConsolidados.push({
                     rua: parseInt(r) || 0,
                     predio: parseInt(p) || 0,
+                    apto: parseInt(a) || 0, // Garante que apto seja número
                     nivel: n,
-                    apto: a,
                     tipoMovimento: row[cols.tipoMov] || "Outros",
                     data: dataProc,
                     picking: info.picking
@@ -233,17 +253,19 @@ async function iniciarSistema() {
     atualizarFiltrosUI();
     loading.classList.remove('active');
     renderizarMapa();
+    
+    setTimeout(verificarDiscrepancias, 1000);
 }
 
 // ===================================================================
-// 5. FILTRAGEM E CÁLCULOS ABC (ENDEREÇO E PRÉDIO)
+// 5. FILTRAGEM E CÁLCULOS ABC
 // ===================================================================
 
 function getDadosBasicos() {
     return dadosConsolidados.filter(item => {
-        // Converte o prédio do dado para o prédio VISUAL (agrupado) para verificar existência
-        const pVisual = obterPredioAgrupado(item.rua, item.predio);
-        const keyVisual = `${item.rua}-${pVisual}`;
+        // Usa o Visual ID (que na Rua 50 é o Apto) para validar se deve aparecer
+        const idVisual = obterVisualId(item.rua, item.predio, item.apto);
+        const keyVisual = `${item.rua}-${idVisual}`;
         
         if (!mapaVisualValido.has(keyVisual)) return false;
 
@@ -270,7 +292,7 @@ function getDadosBasicos() {
     });
 }
 
-// --- CLASSIFICAÇÃO 1: POR ENDEREÇO (Para Tooltips/Detalhes - Granularidade Fina) ---
+// --- CLASSIFICAÇÃO 1: POR ENDEREÇO (Para Tooltips/Detalhes) ---
 function calcularClassificacaoABC_Endereco(dados) {
     const contagem = {};
     let totalMovimentos = 0;
@@ -284,15 +306,14 @@ function calcularClassificacaoABC_Endereco(dados) {
     return classificarPorPareto(contagem, totalMovimentos);
 }
 
-// --- CLASSIFICAÇÃO 2: POR PRÉDIO (Para Filtro "Curva" - Usa Agrupamento) ---
-function calcularClassificacaoABC_Predio(dados) {
+// --- CLASSIFICAÇÃO 2: POR BLOCO VISUAL (Predio ou Apto) ---
+function calcularClassificacaoABC_Visual(dados) {
     const contagem = {};
     let totalMovimentos = 0;
 
     dados.forEach(item => {
-        // Usa o prédio agrupado para somar o volume do "bloco"
-        const pVisual = obterPredioAgrupado(item.rua, item.predio);
-        const key = `${item.rua}-${pVisual}`; 
+        const idVisual = obterVisualId(item.rua, item.predio, item.apto);
+        const key = `${item.rua}-${idVisual}`; 
         contagem[key] = (contagem[key] || 0) + 1;
         totalMovimentos++;
     });
@@ -300,16 +321,13 @@ function calcularClassificacaoABC_Predio(dados) {
     return classificarPorPareto(contagem, totalMovimentos);
 }
 
-// Lógica de Pareto Genérica (Reutilizável)
 function classificarPorPareto(contagemObj, totalMovimentos) {
-    // Agrupa por quantidade (para tratar empates)
     const gruposPorQtd = {};
     Object.entries(contagemObj).forEach(([key, qtd]) => {
         if (!gruposPorQtd[qtd]) gruposPorQtd[qtd] = [];
         gruposPorQtd[qtd].push(key);
     });
 
-    // Ordena quantidades (Maior -> Menor)
     const quantidadesOrdenadas = Object.keys(gruposPorQtd).map(Number).sort((a, b) => b - a);
 
     const mapaClassificacao = {}; 
@@ -394,42 +412,40 @@ function renderizarMapa() {
 
     const dadosBase = getDadosBasicos();
 
-    // Calcula ABC
     const mapaABC_Enderecos = calcularClassificacaoABC_Endereco(dadosBase);
-    const mapaABC_Predios = calcularClassificacaoABC_Predio(dadosBase);
+    const mapaABC_Visuais = calcularClassificacaoABC_Visual(dadosBase);
 
-    // Filtra dados visualmente baseado na Curva do PRÉDIO (usando ID agrupado)
     const dadosFinais = dadosBase.filter(item => {
         if (!filtrosAtivos.curva) return true; 
         
-        const pVisual = obterPredioAgrupado(item.rua, item.predio);
-        const keyPredio = `${item.rua}-${pVisual}`;
-        const classePredio = mapaABC_Predios[keyPredio] || 'C';
+        const idVisual = obterVisualId(item.rua, item.predio, item.apto);
+        const keyVisual = `${item.rua}-${idVisual}`;
+        const classeVisual = mapaABC_Visuais[keyVisual] || 'C';
         
-        return classePredio === filtrosAtivos.curva;
+        return classeVisual === filtrosAtivos.curva;
     });
 
-    // Contagem para o Mapa de Calor (Agrupando)
-    const contagensPorPredio = {};
+    // Contagem usando o ID visual (Prédio ou Apto)
+    const contagensPorVisual = {};
     let totalMovimentos = 0;
     let posicoesComDados = 0;
 
     for (const item of dadosFinais) {
-        const pVisual = obterPredioAgrupado(item.rua, item.predio);
-        const key = `${item.rua}-${pVisual}`;
+        const idVisual = obterVisualId(item.rua, item.predio, item.apto);
+        const key = `${item.rua}-${idVisual}`;
         
-        if (!contagensPorPredio[key]) {
-            contagensPorPredio[key] = 0;
+        if (!contagensPorVisual[key]) {
+            contagensPorVisual[key] = 0;
             posicoesComDados++;
         }
-        contagensPorPredio[key]++;
+        contagensPorVisual[key]++;
         totalMovimentos++;
     }
 
     let minVal = Infinity, maxVal = 0;
     let minLocal = '-', maxLocal = '-';
     
-    const entradas = Object.entries(contagensPorPredio);
+    const entradas = Object.entries(contagensPorVisual);
     if (entradas.length > 0) {
         for (const [loc, qtd] of entradas) {
             if (qtd < minVal) { minVal = qtd; minLocal = loc; }
@@ -447,7 +463,8 @@ function renderizarMapa() {
         
         const titulo = document.createElement('div');
         titulo.className = 'rua-titulo';
-        titulo.textContent = `Rua ${rua}`;
+        // Se for rua 50, muda o título para indicar que são Apartamentos
+        titulo.textContent = rua === 50 ? `Rua ${rua} (Aptos)` : `Rua ${rua}`;
         ruaDiv.appendChild(titulo);
         
         const content = document.createElement('div');
@@ -462,10 +479,10 @@ function renderizarMapa() {
                 const prediosDiv = document.createElement('div');
                 prediosDiv.className = 'predios';
 
-                lista.forEach(predio => {
-                    const key = `${rua}-${predio}`;
-                    const qtd = contagensPorPredio[key] || 0;
-                    const el = criarElementoPredio(predio, qtd, minVal, maxVal, rua, nomeLado, dadosFinais, mapaABC_Enderecos);
+                lista.forEach(idVisual => {
+                    const key = `${rua}-${idVisual}`;
+                    const qtd = contagensPorVisual[key] || 0;
+                    const el = criarElementoPredio(idVisual, qtd, minVal, maxVal, rua, nomeLado, dadosFinais, mapaABC_Enderecos);
                     prediosDiv.appendChild(el);
                 });
 
@@ -482,11 +499,12 @@ function renderizarMapa() {
     }
 }
 
-function criarElementoPredio(predio, contagem, min, max, rua, lado, dadosFiltrados, mapaABC_Enderecos) {
+function criarElementoPredio(idVisual, contagem, min, max, rua, lado, dadosFiltrados, mapaABC_Enderecos) {
     const div = document.createElement('div');
     div.className = 'predio';
     
-    const isPAR = (rua === 4 && predio >= 25 && predio <= 44);
+    // 1. Lógica visual: Apenas Rua 4, prédios 25 ao 44 (Linha Azul)
+    const isPAR = (rua === 4 && idVisual >= 25 && idVisual <= 44);
     if (isPAR) div.classList.add('par');
 
     if (contagem === 0) {
@@ -499,12 +517,11 @@ function criarElementoPredio(predio, contagem, min, max, rua, lado, dadosFiltrad
         const tooltip = document.createElement('div');
         tooltip.className = 'predio-tooltip';
         
-        // Conta endereços A, B, C dentro deste prédio (ou grupo de prédios)
         let cA = 0, cB = 0, cC = 0;
         const unicos = new Set();
         
-        // Filtra dados que pertencem a este bloco visual (usando o helper de agrupamento)
-        dadosFiltrados.filter(d => d.rua === rua && obterPredioAgrupado(d.rua, d.predio) === predio).forEach(d => {
+        // Filtra dados para o Tooltip
+        dadosFiltrados.filter(d => d.rua === rua && obterVisualId(d.rua, d.predio, d.apto) === idVisual).forEach(d => {
             const keyFull = `${d.rua}-${d.predio}-${d.nivel}-${d.apto}`;
             if(!unicos.has(keyFull)) {
                 unicos.add(keyFull);
@@ -513,14 +530,25 @@ function criarElementoPredio(predio, contagem, min, max, rua, lado, dadosFiltrad
             }
         });
 
+        // 2. Lógica do Título com identificação (P.A.R)
+        let textoTitulo = '';
+        if (rua === 50) {
+            textoTitulo = `Apto ${idVisual}`;
+        } else {
+            textoTitulo = `Prédio ${idVisual}`;
+            if (isPAR) {
+                textoTitulo += ' (P.A.R)';
+            }
+        }
+
         tooltip.innerHTML = `
-            <strong>Prédio ${predio}</strong>${isPAR ? ' (P.A.R)' : ''}<br>
-            Clique para mais detalhes.<br>
+            <strong>${textoTitulo}</strong><br>
+            Clique para detalhes.<br>
             <hr style="margin:4px 0; opacity:0.5; border-color: #aaa">
-            Posições A: ${cA}<br>
-            Posições B: ${cB}<br>
-            Posições C: ${cC}
-        `;
+           Posições A: ${cA}<br>
+           Posições B: ${cB}<br>
+           Posições C: ${cC}<br>
+                   `;
         div.appendChild(tooltip);
 
         div.addEventListener('click', (e) => {
@@ -528,7 +556,7 @@ function criarElementoPredio(predio, contagem, min, max, rua, lado, dadosFiltrad
             if (predioSelecionado) predioSelecionado.classList.remove('selecionado');
             predioSelecionado = div;
             predioSelecionado.classList.add('selecionado');
-            mostrarDetalhes(rua, predio, lado, dadosFiltrados, mapaABC_Enderecos);
+            mostrarDetalhes(rua, idVisual, lado, dadosFiltrados, mapaABC_Enderecos);
         });
     }
     return div;
@@ -539,11 +567,21 @@ function criarElementoPredio(predio, contagem, min, max, rua, lado, dadosFiltrad
 // ===================================================================
 function actualizarPainelEstatisticas(min, max, minLoc, maxLoc, total, posicoes) {
     const el = (id) => document.getElementById(id);
+    
+    // Função helper para formatar o nome do local (Rua X - Prédio/Apto Y)
+    const formatLoc = (locStr) => {
+        if(locStr === '-') return '-';
+        const parts = locStr.split('-');
+        const r = parseInt(parts[0]);
+        const label = r === 50 ? 'Apto' : 'Prédio';
+        return `Rua ${r} - ${label} ${parts[1]}`;
+    };
+
     if (posicoes > 0) {
         el('minValue').textContent = formatarNumero(min);
-        el('minLocal').textContent = `Rua: ${minLoc.split('-')[0]} - Prédio: ${minLoc.split('-')[1]}`;
+        el('minLocal').textContent = formatLoc(minLoc);
         el('maxValue').textContent = formatarNumero(max);
-        el('maxLocal').textContent = `Rua: ${maxLoc.split('-')[0]} - Prédio: ${maxLoc.split('-')[1]}`;
+        el('maxLocal').textContent = formatLoc(maxLoc);
         el('avgValue').textContent = formatarNumero(Math.round(total / posicoes));
     } else {
         ['minValue', 'minLocal', 'maxValue', 'maxLocal', 'avgValue'].forEach(id => el(id).textContent = '-');
@@ -552,35 +590,43 @@ function actualizarPainelEstatisticas(min, max, minLoc, maxLoc, total, posicoes)
     el('totalMovements').textContent = formatarNumero(total);
 }
 
-function mostrarDetalhes(rua, predio, lado, dadosFiltrados, mapaABC_Enderecos) {
+function mostrarDetalhes(rua, idVisual, lado, dadosFiltrados, mapaABC_Enderecos) {
     const container = document.getElementById('detalhesContainer');
     
-    // Filtra considerando o agrupamento (traz dados de 71, 73, 75, 77 se clicar no 71)
-    const dadosPredio = dadosFiltrados.filter(d => d.rua === rua && obterPredioAgrupado(d.rua, d.predio) === predio);
+    // Busca dados correspondentes ao bloco clicado
+    const dadosBloco = dadosFiltrados.filter(d => d.rua === rua && obterVisualId(d.rua, d.predio, d.apto) === idVisual);
     
     const pivot = {};
     const tipos = new Set();
     
-    dadosPredio.forEach(item => {
+    dadosBloco.forEach(item => {
         tipos.add(item.tipoMovimento);
-        // Exibe o número real do prédio na tabela para diferenciar
-        const end = `P${item.predio} - ${item.nivel}-${item.apto}`;
-        if (!pivot[end]) pivot[end] = { total: 0, predioReal: item.predio, nivel: item.nivel, apto: item.apto };
-        pivot[end][item.tipoMovimento] = (pivot[end][item.tipoMovimento] || 0) + 1;
-        pivot[end].total++;
+        // Ajusta a label da linha na tabela
+        let labelLinha;
+        if (rua === 50) {
+            // Se for rua 50, mostra Prédio Físico + Nível (já que Apto é o cabeçalho)
+            labelLinha = `Físico P${item.predio} - N${item.nivel}`;
+        } else {
+            labelLinha = `P${item.predio} - ${item.nivel}-${item.apto}`;
+        }
+
+        if (!pivot[labelLinha]) pivot[labelLinha] = { total: 0, predioReal: item.predio, nivel: item.nivel, apto: item.apto };
+        pivot[labelLinha][item.tipoMovimento] = (pivot[labelLinha][item.tipoMovimento] || 0) + 1;
+        pivot[labelLinha].total++;
     });
 
     const headers = Array.from(tipos).sort();
+    const tituloTipo = rua === 50 ? 'Apartamento' : 'Prédio';
 
     let html = `
-        <h3>Detalhes: Rua ${rua} - Prédio ${predio} (${lado}) [Agrupado]
+        <h3>Detalhes: Rua ${rua} - ${tituloTipo} ${idVisual} (${lado})
             <button id="btnFechar">Fechar X</button>
         </h3>
         <div class="tabela-detalhes-container">
             <table class="detalhes">
                 <thead>
                     <tr>
-                        <th>Local (Prédio-N-Apto)</th>
+                        <th>Local</th>
                         <th>Curva</th>`;
     headers.forEach(h => html += `<th>${h}</th>`);
     html += `<th>Total</th></tr></thead><tbody>`;
@@ -660,3 +706,51 @@ document.addEventListener('DOMContentLoaded', () => {
 
     iniciarSistema();
 });
+
+// ===================================================================
+// 9. AUDITORIA DE DADOS
+// ===================================================================
+function verificarDiscrepancias() {
+    console.log("%c=== AUDITORIA DE DADOS ===", "background: #222; color: #bada55; font-size: 14px");
+    
+    const totalExcel = dadosConsolidados.length;
+    let totalNoMapa = 0;
+    
+    const dadosNoMapa = dadosConsolidados.filter(item => {
+        const idVisual = obterVisualId(item.rua, item.predio, item.apto);
+        const keyVisual = `${item.rua}-${idVisual}`;
+        return mapaVisualValido.has(keyVisual);
+    });
+    totalNoMapa = dadosNoMapa.length;
+
+    console.log(`Total Excel:    ${formatarNumero(totalExcel)}`);
+    console.log(`Total no Mapa:  ${formatarNumero(totalNoMapa)}`);
+    console.log(`Ignorados:      ${formatarNumero(totalExcel - totalNoMapa)}`);
+
+    if (totalExcel === totalNoMapa) {
+        console.log("✅ Dados 100% conciliados.");
+        return;
+    }
+
+    const ignorados = {};
+    dadosConsolidados.forEach(item => {
+        const idVisual = obterVisualId(item.rua, item.predio, item.apto);
+        const keyVisual = `${item.rua}-${idVisual}`;
+        
+        if (!mapaVisualValido.has(keyVisual)) {
+            let local;
+            if (item.rua === 50) local = `Rua 50 - Apto ${item.apto} (Range 101-112 ou 201-217?)`;
+            else local = `Rua ${item.rua} - Prédio ${item.predio}`;
+            
+            ignorados[local] = (ignorados[local] || 0) + 1;
+        }
+    });
+
+    console.log("\n⚠️ Principais Locais Ignorados:");
+    console.table(
+        Object.entries(ignorados)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 20)
+            .map(([local, qtd]) => ({ Local: local, Quantidade: qtd }))
+    );
+}
