@@ -9,7 +9,7 @@
     
     <style>
         /* ==========================================================================
-           ESTILOS VISUAIS (BASEADO NO INDEX2 / MAPA_CALOR2)
+           ESTILOS VISUAIS
            ========================================================================== */
         * {
             margin: 0;
@@ -353,7 +353,6 @@
             box-shadow: none;
         }
 
-        /* Classe PAR (Linha Azul inferior) */
         .predio.par {
             border: 1px solid #bdc3c7;
             border-bottom: 3px solid #3498db;
@@ -365,37 +364,63 @@
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         }
 
-        /* --- TOOLTIP --- */
+        /* --- TOOLTIP INTELIGENTE --- */
         .predio-tooltip {
             position: absolute;
             bottom: 100%;
             left: 50%;
-            transform: translateX(-50%);
+            /* Usa variável --arrow-offset para ajuste lateral dinâmico */
+            transform: translateX(calc(-50% + var(--arrow-offset, 0px))); 
+            
             background-color: #2c3e50;
             color: white;
             padding: 8px 12px;
             border-radius: 4px;
             font-size: 12px;
             white-space: nowrap;
-            margin-bottom: 8px;
+            margin-bottom: 10px; /* Espaço para a seta */
+            
             opacity: 0;
-            pointer-events: none;
-            transition: opacity 0.2s ease;
+            visibility: hidden;
+            transition: opacity 0.2s ease, visibility 0.2s;
             z-index: 9999;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            pointer-events: none;
         }
 
         .predio:hover .predio-tooltip {
             opacity: 1;
+            visibility: visible;
         }
 
+        /* Seta (Triângulo) */
         .predio-tooltip::after {
             content: '';
             position: absolute;
             top: 100%;
             left: 50%;
-            transform: translateX(-50%);
-            border: 5px solid transparent;
-            border-top-color: #2c3e50;
+            margin-left: -5px; 
+            
+            /* A seta move-se ao contrário do corpo para continuar apontando para o prédio */
+            transform: translateX(calc(var(--arrow-offset, 0px) * -1)); 
+            
+            border-width: 5px;
+            border-style: solid;
+            border-color: #2c3e50 transparent transparent transparent;
+        }
+
+        /* Variação: Tooltip Embaixo (quando falta espaço em cima) */
+        .predio-tooltip.force-bottom {
+            bottom: auto;
+            top: 100%;
+            margin-bottom: 0;
+            margin-top: 10px;
+        }
+
+        .predio-tooltip.force-bottom::after {
+            top: auto;
+            bottom: 100%;
+            border-color: transparent transparent #2c3e50 transparent;
         }
 
         /* --- LOADING E ERRO --- */
@@ -462,7 +487,7 @@
             border: 1px solid #e0e0e0;
             border-radius: 6px;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-            display: none; /* Começa escondido */
+            display: none; 
         }
 
         .detalhes-container h3 {
@@ -537,7 +562,6 @@
                 MAPA DE CALOR - POSIÇÕES WMS
                 <span id="subtituloData">Aguardando dados...</span>
             </h1>
-    
             <img src="Logotipo-cores-institucionais-vetorizada.jpg" alt="Logo" class="logo" onerror="this.style.display='none'">
         </header>
 
