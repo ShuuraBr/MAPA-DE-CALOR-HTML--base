@@ -75,6 +75,25 @@ const processarData = (v) => {
     return isNaN(d.getTime()) ? null : d;
 };
 
+/**
+ * Função auxiliar para agrupar prédios da Rua 1 (71-129) de 4 em 4.
+ * Converte um prédio real (ex: 73) no seu "pai" visual (ex: 71).
+ */
+function obterPredioAgrupado(rua, predio) {
+    const r = parseInt(rua);
+    const p = parseInt(predio);
+
+    // Regra específica: Rua 1, Ímpar, range 71 a 129
+    if (r === 1 && p >= 71 && p <= 129 && p % 2 !== 0) {
+        const base = 71;
+        // 4 prédios ímpares (ex: 71, 73, 75, 77) cobrem 8 unidades numéricas (77-71 = 6, mas o range do loop é 8)
+        const passo = 8; 
+        const grupo = Math.floor((p - base) / passo);
+        return base + (grupo * passo);
+    }
+    return p; // Para todos os outros casos, retorna o próprio prédio
+}
+
 // ===================================================================
 // 3. ESTRUTURA FÍSICA E VALIDAÇÃO VISUAL
 // ===================================================================
@@ -89,7 +108,12 @@ function getEstruturaPredios() {
         let prediosPar = [];
         
         if (rua === 1) {
+            // Até o 69, segue normal (de 2 em 2)
             for (let i = 41; i <= 69; i += 2) prediosImpar.push(i);
+            
+            // Do 71 ao 129, agrupa de 4 em 4 (pula de 8 em 8 números: 71, 79, 87...)
+            for (let i = 71; i <= 129; i += 8) prediosImpar.push(i);
+            
             prediosPar = Array.from({ length: 5 }, (_, i) => 48 + i * 2);
         } else if (rua === 2) {
             for (let i = 3; i <= 46; i += 2) prediosImpar.push(i);
@@ -217,7 +241,10 @@ async function iniciarSistema() {
 
 function getDadosBasicos() {
     return dadosConsolidados.filter(item => {
-        const keyVisual = `${item.rua}-${item.predio}`;
+        // Converte o prédio do dado para o prédio VISUAL (agrupado) para verificar existência
+        const pVisual = obterPredioAgrupado(item.rua, item.predio);
+        const keyVisual = `${item.rua}-${pVisual}`;
+        
         if (!mapaVisualValido.has(keyVisual)) return false;
 
         const matchTipo = !filtrosAtivos.tipoMovimento || item.tipoMovimento === filtrosAtivos.tipoMovimento;
@@ -243,7 +270,7 @@ function getDadosBasicos() {
     });
 }
 
-// --- CLASSIFICAÇÃO 1: POR ENDEREÇO (Para Tooltips/Detalhes) ---
+// --- CLASSIFICAÇÃO 1: POR ENDEREÇO (Para Tooltips/Detalhes - Granularidade Fina) ---
 function calcularClassificacaoABC_Endereco(dados) {
     const contagem = {};
     let totalMovimentos = 0;
@@ -257,13 +284,15 @@ function calcularClassificacaoABC_Endereco(dados) {
     return classificarPorPareto(contagem, totalMovimentos);
 }
 
-// --- CLASSIFICAÇÃO 2: POR PRÉDIO (Para Filtro "Curva") ---
+// --- CLASSIFICAÇÃO 2: POR PRÉDIO (Para Filtro "Curva" - Usa Agrupamento) ---
 function calcularClassificacaoABC_Predio(dados) {
     const contagem = {};
     let totalMovimentos = 0;
 
     dados.forEach(item => {
-        const key = `${item.rua}-${item.predio}`; // Chave é apenas o prédio
+        // Usa o prédio agrupado para somar o volume do "bloco"
+        const pVisual = obterPredioAgrupado(item.rua, item.predio);
+        const key = `${item.rua}-${pVisual}`; 
         contagem[key] = (contagem[key] || 0) + 1;
         totalMovimentos++;
     });
@@ -290,7 +319,6 @@ function classificarPorPareto(contagemObj, totalMovimentos) {
         const listaItens = gruposPorQtd[qtd];
         const volumeDoGrupo = qtd * listaItens.length;
         
-        // Verifica INÍCIO do grupo no acumulado para ser justo com os maiores
         const percInicio = totalMovimentos === 0 ? 0 : (acumulado / totalMovimentos);
         
         let classeGrupo = 'C';
@@ -366,26 +394,30 @@ function renderizarMapa() {
 
     const dadosBase = getDadosBasicos();
 
-    // Calcula ABC por Endereço (para Detalhes) e por Prédio (para Filtro)
+    // Calcula ABC
     const mapaABC_Enderecos = calcularClassificacaoABC_Endereco(dadosBase);
     const mapaABC_Predios = calcularClassificacaoABC_Predio(dadosBase);
 
-    // Filtra dados visualmente baseado na Curva do PRÉDIO
+    // Filtra dados visualmente baseado na Curva do PRÉDIO (usando ID agrupado)
     const dadosFinais = dadosBase.filter(item => {
         if (!filtrosAtivos.curva) return true; 
         
-        const keyPredio = `${item.rua}-${item.predio}`;
+        const pVisual = obterPredioAgrupado(item.rua, item.predio);
+        const keyPredio = `${item.rua}-${pVisual}`;
         const classePredio = mapaABC_Predios[keyPredio] || 'C';
         
         return classePredio === filtrosAtivos.curva;
     });
 
+    // Contagem para o Mapa de Calor (Agrupando)
     const contagensPorPredio = {};
     let totalMovimentos = 0;
     let posicoesComDados = 0;
 
     for (const item of dadosFinais) {
-        const key = `${item.rua}-${item.predio}`;
+        const pVisual = obterPredioAgrupado(item.rua, item.predio);
+        const key = `${item.rua}-${pVisual}`;
+        
         if (!contagensPorPredio[key]) {
             contagensPorPredio[key] = 0;
             posicoesComDados++;
@@ -433,7 +465,6 @@ function renderizarMapa() {
                 lista.forEach(predio => {
                     const key = `${rua}-${predio}`;
                     const qtd = contagensPorPredio[key] || 0;
-                    // Passa mapaABC_Enderecos para o Tooltip mostrar detalhes internos
                     const el = criarElementoPredio(predio, qtd, minVal, maxVal, rua, nomeLado, dadosFinais, mapaABC_Enderecos);
                     prediosDiv.appendChild(el);
                 });
@@ -468,11 +499,12 @@ function criarElementoPredio(predio, contagem, min, max, rua, lado, dadosFiltrad
         const tooltip = document.createElement('div');
         tooltip.className = 'predio-tooltip';
         
-        // Conta endereços A, B, C dentro deste prédio (baseado nos dados filtrados)
+        // Conta endereços A, B, C dentro deste prédio (ou grupo de prédios)
         let cA = 0, cB = 0, cC = 0;
         const unicos = new Set();
         
-        dadosFiltrados.filter(d => d.rua === rua && d.predio === predio).forEach(d => {
+        // Filtra dados que pertencem a este bloco visual (usando o helper de agrupamento)
+        dadosFiltrados.filter(d => d.rua === rua && obterPredioAgrupado(d.rua, d.predio) === predio).forEach(d => {
             const keyFull = `${d.rua}-${d.predio}-${d.nivel}-${d.apto}`;
             if(!unicos.has(keyFull)) {
                 unicos.add(keyFull);
@@ -522,15 +554,18 @@ function actualizarPainelEstatisticas(min, max, minLoc, maxLoc, total, posicoes)
 
 function mostrarDetalhes(rua, predio, lado, dadosFiltrados, mapaABC_Enderecos) {
     const container = document.getElementById('detalhesContainer');
-    const dadosPredio = dadosFiltrados.filter(d => d.rua === rua && d.predio === predio);
+    
+    // Filtra considerando o agrupamento (traz dados de 71, 73, 75, 77 se clicar no 71)
+    const dadosPredio = dadosFiltrados.filter(d => d.rua === rua && obterPredioAgrupado(d.rua, d.predio) === predio);
     
     const pivot = {};
     const tipos = new Set();
     
     dadosPredio.forEach(item => {
         tipos.add(item.tipoMovimento);
-        const end = `${item.nivel}-${item.apto}`;
-        if (!pivot[end]) pivot[end] = { total: 0 };
+        // Exibe o número real do prédio na tabela para diferenciar
+        const end = `P${item.predio} - ${item.nivel}-${item.apto}`;
+        if (!pivot[end]) pivot[end] = { total: 0, predioReal: item.predio, nivel: item.nivel, apto: item.apto };
         pivot[end][item.tipoMovimento] = (pivot[end][item.tipoMovimento] || 0) + 1;
         pivot[end].total++;
     });
@@ -538,25 +573,25 @@ function mostrarDetalhes(rua, predio, lado, dadosFiltrados, mapaABC_Enderecos) {
     const headers = Array.from(tipos).sort();
 
     let html = `
-        <h3>Detalhes: Rua ${rua} - Prédio ${predio} (${lado}) 
+        <h3>Detalhes: Rua ${rua} - Prédio ${predio} (${lado}) [Agrupado]
             <button id="btnFechar">Fechar X</button>
         </h3>
         <div class="tabela-detalhes-container">
             <table class="detalhes">
                 <thead>
                     <tr>
-                        <th>Local (N-Apto)</th>
+                        <th>Local (Prédio-N-Apto)</th>
                         <th>Curva</th>`;
     headers.forEach(h => html += `<th>${h}</th>`);
     html += `<th>Total</th></tr></thead><tbody>`;
 
-    Object.entries(pivot).sort((a,b) => b[1].total - a[1].total).forEach(([end, vals]) => {
-        const keyFull = `${rua}-${predio}-${end}`;
+    Object.entries(pivot).sort((a,b) => b[1].total - a[1].total).forEach(([label, vals]) => {
+        const keyFull = `${rua}-${vals.predioReal}-${vals.nivel}-${vals.apto}`;
         const classe = mapaABC_Enderecos[keyFull] || '-';
         const cor = classe === 'A' ? '#e74c3c' : (classe === 'B' ? '#f39c12' : '#2ecc71');
 
         html += `<tr>
-            <td>${end}</td>
+            <td>${label}</td>
             <td style="font-weight:bold; color:${cor}; text-align:center">${classe}</td>`;
         headers.forEach(h => html += `<td>${formatarNumero(vals[h] || 0)}</td>`);
         html += `<td><strong>${formatarNumero(vals.total)}</strong></td></tr>`;
