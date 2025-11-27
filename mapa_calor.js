@@ -501,73 +501,84 @@ function criarElementoPredio(idVisual, contagem, min, max, rua, lado, dadosFiltr
         div.style.backgroundColor = calcularCor(contagem, min, max);
         div.textContent = contagem > 9999 ? (contagem/1000).toFixed(0) + 'k' : formatarNumero(contagem);
 
-        const tooltip = document.createElement('div');
-        tooltip.className = 'predio-tooltip';
-        
-        let cA = 0, cB = 0, cC = 0;
-        const unicos = new Set();
-        
-        // Filtra dados para o Tooltip
-        dadosFiltrados.filter(d => d.rua === rua && obterVisualId(d.rua, d.predio, d.apto) === idVisual).forEach(d => {
-            const keyFull = `${d.rua}-${d.predio}-${d.nivel}-${d.apto}`;
-            if(!unicos.has(keyFull)) {
-                unicos.add(keyFull);
-                const classe = mapaABC_Enderecos[keyFull] || 'C';
-                if(classe === 'A') cA++; else if(classe === 'B') cB++; else cC++;
+        // --- LÓGICA DO TOOLTIP GLOBAL (Sem "filhos" aqui) ---
+        const tooltipGlobal = document.getElementById('tooltip-global');
+
+        div.addEventListener('mouseenter', () => {
+            // 1. Preparar Conteúdo
+            let cA = 0, cB = 0, cC = 0;
+            const unicos = new Set();
+            
+            dadosFiltrados.filter(d => d.rua === rua && obterVisualId(d.rua, d.predio, d.apto) === idVisual).forEach(d => {
+                const keyFull = `${d.rua}-${d.predio}-${d.nivel}-${d.apto}`;
+                if(!unicos.has(keyFull)) {
+                    unicos.add(keyFull);
+                    const classe = mapaABC_Enderecos[keyFull] || 'C';
+                    if(classe === 'A') cA++; else if(classe === 'B') cB++; else cC++;
+                }
+            });
+
+            let textoTitulo = '';
+            if (rua === 50) textoTitulo = `Apto ${idVisual}`;
+            else {
+                textoTitulo = `Prédio ${idVisual}`;
+                if (isPAR) textoTitulo += ' (P.A.R)';
             }
+
+            tooltipGlobal.innerHTML = `
+                <strong>${textoTitulo}</strong><br>
+                Clique para detalhes.<br>
+                <hr style="margin:4px 0; opacity:0.5; border-color: #aaa">
+                Posições A: ${cA}<br>
+                Posições B: ${cB}<br>
+                Posições C: ${cC}
+            `;
+
+            // 2. Calcular Posição Global (Fixed)
+            tooltipGlobal.classList.add('visible'); // Mostra para medir tamanho
+            
+            const pRect = div.getBoundingClientRect(); // Retângulo do prédio
+            const tRect = tooltipGlobal.getBoundingClientRect(); // Retângulo do Tooltip
+            const vW = window.innerWidth;
+
+            // Define Top vs Bottom (Prioridade: Topo)
+            let top = pRect.top - tRect.height - 10;
+            let clsPos = 'pos-top';
+
+            // Se não couber em cima, joga pra baixo
+            if (pRect.top < tRect.height + 15) {
+                top = pRect.bottom + 10;
+                clsPos = 'pos-bottom';
+            }
+
+            // Centraliza horizontalmente
+            let left = pRect.left + (pRect.width / 2) - (tRect.width / 2);
+
+            // Clamp (Evita sair pelas laterais)
+            let arrowOffset = 0;
+            if (left < 5) {
+                arrowOffset = left - 5; // Negativo (estourou esquerda)
+                left = 5;
+            } else if (left + tRect.width > vW - 5) {
+                let newLeft = vW - tRect.width - 5;
+                arrowOffset = left - newLeft; // Positivo (estourou direita)
+                left = newLeft;
+            }
+            
+            // Correção da Seta (Seta move-se para acompanhar o alvo)
+            const targetCenterX = pRect.left + (pRect.width / 2);
+            const tooltipCenterX = left + (tRect.width / 2);
+            const finalOffset = targetCenterX - tooltipCenterX;
+
+            // Aplica estilos
+            tooltipGlobal.style.top = `${top}px`;
+            tooltipGlobal.style.left = `${left}px`;
+            tooltipGlobal.className = `visible ${clsPos}`;
+            tooltipGlobal.style.setProperty('--arrow-offset', `${finalOffset}px`);
         });
 
-        // 2. Lógica do Título com identificação (P.A.R)
-        let textoTitulo = '';
-        if (rua === 50) {
-            textoTitulo = `Apto ${idVisual}`;
-        } else {
-            textoTitulo = `Prédio ${idVisual}`;
-            if (isPAR) {
-                textoTitulo += ' (P.A.R)';
-            }
-        }
-
-        tooltip.innerHTML = `
-            <strong>${textoTitulo}</strong><br>
-            Clique para detalhes.<br>
-            <hr style="margin:4px 0; opacity:0.5; border-color: #aaa">
-           Posições A: ${cA}<br>
-           Posições B: ${cB}<br>
-           Posições C: ${cC}<br>
-                   `;
-        div.appendChild(tooltip);
-
-        // ==========================================================
-        // LÓGICA DE POSICIONAMENTO INTELIGENTE (COLISÃO)
-        // ==========================================================
-        div.addEventListener('mouseenter', () => {
-            // Resetar estilos
-            tooltip.classList.remove('force-bottom');
-            tooltip.style.setProperty('--arrow-offset', '0px');
-            
-            const rect = div.getBoundingClientRect(); // Prédio
-            const tipRect = tooltip.getBoundingClientRect(); // Tooltip
-            const viewportWidth = window.innerWidth;
-
-            // 1. Colisão Vertical (Topo)
-            if (rect.top < tipRect.height + 20) {
-                tooltip.classList.add('force-bottom');
-            }
-
-            // 2. Colisão Horizontal
-            const tipRectNew = tooltip.getBoundingClientRect(); // Recalcula após possível mudança vertical
-            let offset = 0;
-            
-            if (tipRectNew.left < 10) {
-                offset = Math.abs(tipRectNew.left) + 10;
-            } else if (tipRectNew.right > viewportWidth - 10) {
-                offset = (viewportWidth - 10) - tipRectNew.right;
-            }
-
-            if (offset !== 0) {
-                tooltip.style.setProperty('--arrow-offset', `${offset}px`);
-            }
+        div.addEventListener('mouseleave', () => {
+            tooltipGlobal.classList.remove('visible');
         });
 
         div.addEventListener('click', (e) => {
