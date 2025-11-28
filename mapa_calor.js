@@ -100,9 +100,6 @@ function obterVisualId(rua, predio, apto) {
     return p; // Padrão
 }
 
-// ===================================================================
-// 3. ESTRUTURA FÍSICA E VALIDAÇÃO VISUAL
-// ===================================================================
 let mapaVisualValido = new Set(); 
 
 function getEstruturaPredios() {
