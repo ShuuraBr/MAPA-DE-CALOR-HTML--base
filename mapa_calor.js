@@ -10,15 +10,15 @@ const CONFIG = {
         convocacoes: 'Convocações Matriz-Mapeamento.xlsx',
         abastecimento: 'Abastecimento-mapeamento.xlsx'
     },
-    // IMPORTANTE: O sistema procura EXATAMENTE estes textos no Excel
+    // O sistema agora ajusta estes nomes automaticamente se encontrar variações (ex: acentos/espaços)
     colsEnderecos: {
         rua: 'Rua', predio: 'Prédio', nivel: 'Nível', apto: 'Apartamento',
         tipoEndereco: 'Tipo de endereço' 
     },
     colsConvocacoes: {
-        rua: 'Rua', predio: 'Prédio', nivel: 'Nível', apto: 'Apartamento',
-        tipoMov: 'Tipo de movimento', 
-        data: 'Data/hora inserção',
+        data: 'Data/hora inserção', // O script vai procurar variações disso aqui
+        tipoMov: 'Tipo de movimento',
+        rua: 'Rua', predio: 'Prédio', nivel: 'Nível', apto: 'Apartamento'
     },
     colsAbastecimento: {
         rua: 'Rua', predio: 'Prédio', nivel: 'Nível', apto: 'Apartamento',
@@ -57,6 +57,11 @@ function calcularCor(valor, min, max) {
 const formatarNumero = (n) => (n === undefined || n === null) ? '-' : n.toString().replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 const normalizar = (v) => (v === undefined || v === null) ? "" : String(v).replace('.0', '').trim();
 
+// Função auxiliar para "limpar" textos para comparação (ignora acentos e espaços)
+const limparTexto = (t) => String(t || "").toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Remove acentos
+    .replace(/[^a-z0-9]/g, ""); // Remove tudo que não for letra ou número
+
 const processarData = (v) => {
     if (!v) return null;
     if (typeof v === 'number') {
@@ -64,7 +69,7 @@ const processarData = (v) => {
     }
     if (typeof v === 'string') {
         if (v.includes('/')) {
-            const partes = v.split(' ');
+            const partes = v.split(' '); // Pega só a data se tiver hora
             const dataPartes = partes[0].split('/');
             if (dataPartes.length === 3) {
                 return new Date(dataPartes[2], dataPartes[1] - 1, dataPartes[0]);
@@ -74,6 +79,10 @@ const processarData = (v) => {
     const d = new Date(v);
     return isNaN(d.getTime()) ? null : d;
 };
+
+// ===================================================================
+// 3. ESTRUTURA DO ARMAZÉM
+// ===================================================================
 
 /**
  * Lógica Central de Agrupamento Visual.
@@ -165,11 +174,12 @@ function buscarDadosValidos(wb, nomeArquivo, colChave) {
         return [];
     }
 
-    console.log(`%c[${nomeArquivo}] Iniciando Varredura Inteligente... Procurando: "${colChave}"`, "color: blue; font-weight: bold");
+    const chaveLimpa = limparTexto(colChave);
+    console.log(`[${nomeArquivo}] Procurando coluna (modo flexível): "${colChave}" -> Chave interna: "${chaveLimpa}"`);
 
     for (const nomeAba of wb.SheetNames) {
         const sheet = wb.Sheets[nomeAba];
-        // Lê as primeiras 20 linhas como matriz (array de arrays) para inspecionar
+        // Lê as primeiras 50 linhas como matriz para inspecionar
         const dadosBrutos = XLSX.utils.sheet_to_json(sheet, { header: 1, range: 0, defval: "" });
 
         if (dadosBrutos && dadosBrutos.length > 0) {
@@ -178,31 +188,46 @@ function buscarDadosValidos(wb, nomeArquivo, colChave) {
             // Varre as primeiras 50 linhas
             for (let i = 0; i < Math.min(dadosBrutos.length, 50); i++) {
                 const linha = dadosBrutos[i];
-                // Verifica se a linha contém a coluna chave (com normalização)
-                const colChaveNormalizada = String(colChave).trim().toLowerCase();
-                const linhaNormalizada = linha.map(c => String(c).trim().toLowerCase());
-                if (linha && Array.isArray(linha) && linhaNormalizada.includes(colChaveNormalizada)) {
-                    linhaCabecalho = i;
-                    break;
+                if (linha && Array.isArray(linha)) {
+                    // Limpa a linha inteira para comparação
+                    const linhaLimpa = linha.map(c => limparTexto(c));
+                    
+                    if (linhaLimpa.includes(chaveLimpa)) {
+                        linhaCabecalho = i;
+                        
+                        // --- AUTO-CORREÇÃO DO NOME DA COLUNA ---
+                        const indexReal = linhaLimpa.indexOf(chaveLimpa);
+                        const nomeReal = linha[indexReal];
+                        
+                        console.log(`%c[${nomeArquivo}] ✅ Cabeçalho encontrado na LINHA ${i + 1}. Nome exato: "${nomeReal}"`, "color: green");
+
+                        // Atualiza a CONFIG globalmente para usar o nome exato que está no arquivo
+                        if (nomeArquivo === "Convocacoes") {
+                            // Se achou a data, atualiza a config de data
+                            if (limparTexto(CONFIG.colsConvocacoes.data) === chaveLimpa) CONFIG.colsConvocacoes.data = nomeReal;
+                            // Se achou o tipo, atualiza o tipo
+                            if (limparTexto(CONFIG.colsConvocacoes.tipoMov) === chaveLimpa) CONFIG.colsConvocacoes.tipoMov = nomeReal;
+                        }
+                        if (nomeArquivo === "Abastecimento") {
+                             if (limparTexto(CONFIG.colsAbastecimento.data) === chaveLimpa) CONFIG.colsAbastecimento.data = nomeReal;
+                        }
+
+                        break;
+                    }
                 }
             }
 
             if (linhaCabecalho !== -1) {
-                console.log(`%c[${nomeArquivo}] ✅ Cabeçalho encontrado na LINHA ${linhaCabecalho + 1} da aba "${nomeAba}".`, "color: green");
-                
                 // Lê novamente a partir da linha correta
                 const dadosFinais = XLSX.utils.sheet_to_json(sheet, { range: linhaCabecalho, defval: "" });
                 return dadosFinais;
-            } else {
-                // LOG DE DEPURAÇÃO PARA O USUÁRIO VER O QUE O SCRIPT ESTÁ LENDO
-                console.warn(`[${nomeArquivo}] ⚠️ Aba "${nomeAba}": Coluna "${colChave}" não encontrada nas primeiras 20 linhas.`);
-                console.log(`%c[${nomeArquivo}] Conteúdo das primeiras 3 linhas desta aba (para conferência):`, "color: #777");
-                console.table(dadosBrutos.slice(0, 3)); 
             }
         }
     }
     
-    console.error(`[${nomeArquivo}] ❌ ERRO FATAL: Não encontrei a coluna "${colChave}" em nenhuma aba.`);
+    // Se chegou aqui, não achou nem com busca flexível
+    console.warn(`[${nomeArquivo}] ⚠️ Coluna "${colChave}" não encontrada nem com busca aproximada.`);
+    // Se falhar, retorna vazio mas não trava o script inteiro
     return [];
 }
 
@@ -258,6 +283,7 @@ async function iniciarSistema() {
             if (r && p) {
                 const key = `${r}-${p}-${n}-${a}`;
                 const info = mapaRef[key] || { picking: 'Indefinido' };
+                // Aqui usamos o cols.data que pode ter sido atualizado pelo buscarDadosValidos
                 const dataProc = processarData(row[cols.data]);
 
                 dadosConsolidados.push({
@@ -273,17 +299,19 @@ async function iniciarSistema() {
         });
     };
 
-    // Processamento com logs de sucesso
-    const dadosConv = buscarDadosValidos(wbConv, "Convocacoes", CONFIG.colsConvocacoes.rua);
+    // Processamento com busca inteligente
+    const dadosConv = buscarDadosValidos(wbConv, "Convocacoes", CONFIG.colsConvocacoes.data);
     if (dadosConv.length > 0) {
         processarTabela(dadosConv, CONFIG.colsConvocacoes);
-        console.log(`[Convocações] ${dadosConv.length} linhas processadas com sucesso.`);
+        console.log(`[Convocações] ${dadosConv.length} linhas processadas.`);
+    } else {
+        console.error("ERRO: Dados de convocações vazios ou coluna não encontrada.");
     }
 
     const dadosAbast = buscarDadosValidos(wbAbast, "Abastecimento", CONFIG.colsAbastecimento.rua);
     if (dadosAbast.length > 0) {
         processarTabela(dadosAbast, CONFIG.colsAbastecimento);
-        console.log(`[Abastecimento] ${dadosAbast.length} linhas processadas com sucesso.`);
+        console.log(`[Abastecimento] ${dadosAbast.length} linhas processadas.`);
     }
     
     atualizarFiltrosUI();
