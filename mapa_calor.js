@@ -10,20 +10,20 @@ const CONFIG = {
         convocacoes: 'Convocações Matriz-Mapeamento.xlsx',
         abastecimento: 'Abastecimento-mapeamento.xlsx'
     },
-    // O sistema agora ajusta estes nomes automaticamente se encontrar variações (ex: acentos/espaços)
+    // ATENÇÃO: Os nomes aqui devem ser parte do nome que está no cabeçalho do Excel
     colsEnderecos: {
         rua: 'Rua', predio: 'Prédio', nivel: 'Nível', apto: 'Apartamento',
         tipoEndereco: 'Tipo de endereço' 
     },
     colsConvocacoes: {
-        data: 'Data/hora inserção', // O script vai procurar variações disso aqui
-        tipoMov: 'Tipo de movimento',
-        rua: 'Rua', predio: 'Prédio', nivel: 'Nível', apto: 'Apartamento'
+        rua: 'Rua', predio: 'Prédio', nivel: 'Nível', apto: 'Apartamento',
+        data: 'Data/hora inserção', // O código tentará achar colunas parecidas se não encontrar essa
+        tipoMov: 'Tipo de movimento'
     },
     colsAbastecimento: {
         rua: 'Rua', predio: 'Prédio', nivel: 'Nível', apto: 'Apartamento',
         tipoMov: 'Tipo da Transferência', 
-        data: 'Data/hora cadastro'
+        data: 'Data' // O código tentará achar colunas parecidas
     }
 };
 
@@ -57,25 +57,28 @@ function calcularCor(valor, min, max) {
 const formatarNumero = (n) => (n === undefined || n === null) ? '-' : n.toString().replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 const normalizar = (v) => (v === undefined || v === null) ? "" : String(v).replace('.0', '').trim();
 
-// Função auxiliar para "limpar" textos para comparação (ignora acentos e espaços)
+// Função auxiliar para "limpar" textos para comparação (ignora acentos, espaços e maiúsculas)
 const limparTexto = (t) => String(t || "").toLowerCase()
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Remove acentos
-    .replace(/[^a-z0-9]/g, ""); // Remove tudo que não for letra ou número
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") 
+    .replace(/[^a-z0-9]/g, ""); 
 
 const processarData = (v) => {
     if (!v) return null;
+    // Data Excel Serial (ex: 45200)
     if (typeof v === 'number') {
         return new Date(Math.round((v - 25569) * 86400 * 1000));
     }
+    // String (ex: "25/10/2024")
     if (typeof v === 'string') {
         if (v.includes('/')) {
-            const partes = v.split(' '); // Pega só a data se tiver hora
+            const partes = v.split(' '); 
             const dataPartes = partes[0].split('/');
             if (dataPartes.length === 3) {
                 return new Date(dataPartes[2], dataPartes[1] - 1, dataPartes[0]);
             }
         }
     }
+    // ISO ou outra
     const d = new Date(v);
     return isNaN(d.getTime()) ? null : d;
 };
@@ -84,21 +87,13 @@ const processarData = (v) => {
 // 3. ESTRUTURA DO ARMAZÉM
 // ===================================================================
 
-/**
- * Lógica Central de Agrupamento Visual.
- * Determina qual ID será desenhado no mapa.
- */
 function obterVisualId(rua, predio, apto) {
     const r = parseInt(rua);
     const p = parseInt(predio);
     const a = parseInt(apto) || 0;
 
-    // REGRA RUA 50: O Apartamento vira o ID Visual
-    if (r === 50) {
-        return a;
-    }
+    if (r === 50) return a;
 
-    // REGRA RUA 1: Agrupamento 71-129 (Ímpar)
     if (r === 1 && p >= 71 && p <= 129 && p % 2 !== 0) {
         const base = 71;
         const passo = 8; 
@@ -106,7 +101,7 @@ function obterVisualId(rua, predio, apto) {
         return base + (grupo * passo);
     }
 
-    return p; // Padrão
+    return p; 
 }
 
 let mapaVisualValido = new Set(); 
@@ -120,19 +115,13 @@ function getEstruturaPredios() {
         let prediosPar = [];
         
         if (rua === 50) {
-            // === CONFIGURAÇÃO RUA 50 (Visualizacao por Apartamento) ===
             for (let i = 101; i <= 112; i++) prediosImpar.push(i);
             for (let i = 201; i <= 217; i++) prediosPar.push(i);
-
         } else if (rua === 1) {
-            // Rua 1 Normal
             for (let i = 41; i <= 69; i += 2) prediosImpar.push(i);
-            // Rua 1 Agrupada
             for (let i = 71; i <= 129; i += 8) prediosImpar.push(i);
-            // Rua 1 Par
             prediosPar = Array.from({ length: 5 }, (_, i) => 48 + i * 2);
             prediosPar.push(70);
-            
         } else if (rua === 2) {
             for (let i = 3; i <= 46; i += 2) prediosImpar.push(i);
             for (let i = 2; i <= 46; i += 2) prediosPar.push(i);
@@ -157,7 +146,7 @@ let filtrosAtivos = { tipoMovimento: '', picking: '', curva: '', dataInicial: nu
 let predioSelecionado = null; 
 
 // ===================================================================
-// 4. CARREGAMENTO INTELIGENTE (RESOLUÇÃO DE ERROS DE CABEÇALHO)
+// 4. CARREGAMENTO E BUSCA ROBUSTA (AQUI ESTÁ A CORREÇÃO PRINCIPAL)
 // ===================================================================
 async function carregarExcel(url) {
     try {
@@ -168,66 +157,88 @@ async function carregarExcel(url) {
     } catch (e) { console.error(`Falha ao carregar ${url}`, e); return null; }
 }
 
-function buscarDadosValidos(wb, nomeArquivo, colChave) {
+function buscarDadosValidos(wb, nomeArquivo, colChaveOuLista) {
     if (!wb) {
-        console.error(`[${nomeArquivo}] ERRO: Arquivo não foi carregado (wb é nulo).`);
+        console.error(`[${nomeArquivo}] ERRO: Arquivo não foi carregado corretamente.`);
         return [];
     }
 
-    const chaveLimpa = limparTexto(colChave);
-    console.log(`[${nomeArquivo}] Procurando coluna (modo flexível): "${colChave}" -> Chave interna: "${chaveLimpa}"`);
+    const candidatos = Array.isArray(colChaveOuLista) ? colChaveOuLista : [colChaveOuLista];
+    const candidatosLimpos = candidatos.map(c => limparTexto(c));
 
+    console.log(`[${nomeArquivo}] Procurando colunas:`, candidatos);
+
+    // Itera sobre TODAS as abas até achar algo
     for (const nomeAba of wb.SheetNames) {
         const sheet = wb.Sheets[nomeAba];
-        // Lê as primeiras 50 linhas como matriz para inspecionar
-        const dadosBrutos = XLSX.utils.sheet_to_json(sheet, { header: 1, range: 0, defval: "" });
+        
+        // Pega TODO o conteúdo da aba como uma matriz (linhas x colunas)
+        // defval: "" garante que células vazias não quebrem o array
+        const dadosBrutos = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
 
         if (dadosBrutos && dadosBrutos.length > 0) {
-            let linhaCabecalho = -1;
-            
-            // Varre as primeiras 50 linhas
+            // Varre as primeiras 50 linhas procurando o cabeçalho
             for (let i = 0; i < Math.min(dadosBrutos.length, 50); i++) {
                 const linha = dadosBrutos[i];
+                
                 if (linha && Array.isArray(linha)) {
-                    // Limpa a linha inteira para comparação
                     const linhaLimpa = linha.map(c => limparTexto(c));
                     
-                    if (linhaLimpa.includes(chaveLimpa)) {
-                        linhaCabecalho = i;
-                        
-                        // --- AUTO-CORREÇÃO DO NOME DA COLUNA ---
-                        const indexReal = linhaLimpa.indexOf(chaveLimpa);
+                    // Verifica se ALGUM dos candidatos (ex: "rua") está nesta linha
+                    const encontrou = candidatosLimpos.find(c => linhaLimpa.includes(c));
+
+                    if (encontrou) {
+                        const indexReal = linhaLimpa.indexOf(encontrou);
                         const nomeReal = linha[indexReal];
                         
-                        console.log(`%c[${nomeArquivo}] ✅ Cabeçalho encontrado na LINHA ${i + 1}. Nome exato: "${nomeReal}"`, "color: green");
+                        console.log(`%c[${nomeArquivo}] ✅ Cabeçalho encontrado na linha ${i + 1}: "${nomeReal}"`, "color: green");
 
-                        // Atualiza a CONFIG globalmente para usar o nome exato que está no arquivo
+                        // Ajuste dinâmico para Convocações (Data)
                         if (nomeArquivo === "Convocacoes") {
-                            // Se achou a data, atualiza a config de data
-                            if (limparTexto(CONFIG.colsConvocacoes.data) === chaveLimpa) CONFIG.colsConvocacoes.data = nomeReal;
-                            // Se achou o tipo, atualiza o tipo
-                            if (limparTexto(CONFIG.colsConvocacoes.tipoMov) === chaveLimpa) CONFIG.colsConvocacoes.tipoMov = nomeReal;
+                            // Tenta achar a coluna de data nesta mesma linha
+                            linha.forEach(col => {
+                                const txt = limparTexto(col);
+                                // Se contiver 'data', 'hora' ou 'inclusao', assume que é a data
+                                if (txt.includes('data') || txt.includes('hora') || txt.includes('inclusao')) {
+                                    console.log(`[${nomeArquivo}] Coluna de Data identificada: "${col}"`);
+                                    CONFIG.colsConvocacoes.data = col;
+                                }
+                            });
                         }
+                        
+                        // Ajuste dinâmico para Abastecimento (Data)
                         if (nomeArquivo === "Abastecimento") {
-                             if (limparTexto(CONFIG.colsAbastecimento.data) === chaveLimpa) CONFIG.colsAbastecimento.data = nomeReal;
+                            linha.forEach(col => {
+                                const txt = limparTexto(col);
+                                if (txt.includes('data') || txt.includes('cadastro')) {
+                                    console.log(`[${nomeArquivo}] Coluna de Data identificada: "${col}"`);
+                                    CONFIG.colsAbastecimento.data = col;
+                                }
+                            });
                         }
 
-                        break;
+                        // Retorna os dados usando a linha encontrada como cabeçalho (range: i)
+                        return XLSX.utils.sheet_to_json(sheet, { range: i, defval: "" });
                     }
                 }
-            }
-
-            if (linhaCabecalho !== -1) {
-                // Lê novamente a partir da linha correta
-                const dadosFinais = XLSX.utils.sheet_to_json(sheet, { range: linhaCabecalho, defval: "" });
-                return dadosFinais;
             }
         }
     }
     
-    // Se chegou aqui, não achou nem com busca flexível
-    console.warn(`[${nomeArquivo}] ⚠️ Coluna "${colChave}" não encontrada nem com busca aproximada.`);
-    // Se falhar, retorna vazio mas não trava o script inteiro
+    // Se chegou aqui, falhou
+    console.warn(`[${nomeArquivo}] ⚠️ Nenhuma coluna válida encontrada nas primeiras 50 linhas de nenhuma aba.`);
+    
+    // Diagnóstico final para o usuário
+    const primeiraAba = wb.Sheets[wb.SheetNames[0]];
+    const dadosDiagnostico = XLSX.utils.sheet_to_json(primeiraAba, { header: 1 }).slice(0, 5);
+    
+    if (dadosDiagnostico.length === 0) {
+        console.error(`[${nomeArquivo}] O arquivo parece vazio ou em formato inválido (XML/HTML). Tente abrir no Excel e 'Salvar Como' .xlsx`);
+    } else {
+        console.table(dadosDiagnostico);
+        console.log(`[${nomeArquivo}] Verifique a tabela acima. Seus cabeçalhos estão aí? Atualize o CONFIG.`);
+    }
+
     return [];
 }
 
@@ -238,19 +249,22 @@ async function iniciarSistema() {
     
     getEstruturaPredios();
 
+    // Carrega os 3 arquivos
     const [wbEnd, wbConv, wbAbast] = await Promise.all([
         carregarExcel(CONFIG.arquivos.enderecos),
         carregarExcel(CONFIG.arquivos.convocacoes),
         carregarExcel(CONFIG.arquivos.abastecimento)
     ]);
 
+    // Verifica Endereços (Obrigatório)
     if (!wbEnd) {
-        erroDiv.textContent = "Erro Crítico: Arquivo 'Endereços.xlsx' não encontrado.";
+        erroDiv.textContent = "Erro Crítico: Arquivo 'Endereços.xlsx' não carregou.";
         erroDiv.classList.add('active');
         loading.classList.remove('active');
         return;
     }
 
+    // 1. Processar Endereços
     const rawEnd = buscarDadosValidos(wbEnd, "Endereços", CONFIG.colsEnderecos.rua);
     const mapaRef = {}; 
 
@@ -271,6 +285,7 @@ async function iniciarSistema() {
 
     dadosConsolidados = [];
 
+    // Função genérica de processamento
     const processarTabela = (rows, cols) => {
         if (!rows || rows.length === 0) return;
 
@@ -283,7 +298,6 @@ async function iniciarSistema() {
             if (r && p) {
                 const key = `${r}-${p}-${n}-${a}`;
                 const info = mapaRef[key] || { picking: 'Indefinido' };
-                // Aqui usamos o cols.data que pode ter sido atualizado pelo buscarDadosValidos
                 const dataProc = processarData(row[cols.data]);
 
                 dadosConsolidados.push({
@@ -299,26 +313,34 @@ async function iniciarSistema() {
         });
     };
 
-    // Processamento com busca inteligente
-    const dadosConv = buscarDadosValidos(wbConv, "Convocacoes", CONFIG.colsConvocacoes.data);
+    // 2. Processar Convocações
+    const dadosConv = buscarDadosValidos(wbConv, "Convocacoes", CONFIG.colsConvocacoes.rua);
     if (dadosConv.length > 0) {
         processarTabela(dadosConv, CONFIG.colsConvocacoes);
-        console.log(`[Convocações] ${dadosConv.length} linhas processadas.`);
+        console.log(`[Convocações] ${dadosConv.length} linhas importadas.`);
     } else {
-        console.error("ERRO: Dados de convocações vazios ou coluna não encontrada.");
+        console.error("ERRO: Não foi possível ler dados de Convocações.");
     }
 
+    // 3. Processar Abastecimento
     const dadosAbast = buscarDadosValidos(wbAbast, "Abastecimento", CONFIG.colsAbastecimento.rua);
     if (dadosAbast.length > 0) {
         processarTabela(dadosAbast, CONFIG.colsAbastecimento);
-        console.log(`[Abastecimento] ${dadosAbast.length} linhas processadas.`);
+        console.log(`[Abastecimento] ${dadosAbast.length} linhas importadas.`);
     }
     
     atualizarFiltrosUI();
     loading.classList.remove('active');
     renderizarMapa();
     
-    setTimeout(verificarDiscrepancias, 1000);
+    // Verifica se realmente importou algo
+    setTimeout(() => {
+        if (dadosConsolidados.length === 0) {
+            alert("ATENÇÃO: Nenhum dado foi processado. Verifique o Console (F12) para ver os detalhes do erro.");
+        } else {
+            verificarDiscrepancias();
+        }
+    }, 1000);
 }
 
 // ===================================================================
@@ -562,7 +584,6 @@ function criarElementoPredio(idVisual, contagem, min, max, rua, lado, dadosFiltr
     const div = document.createElement('div');
     div.className = 'predio';
     
-    // 1. Lógica visual: Apenas Rua 4, prédios 25 ao 44 (Linha Azul)
     const isPAR = (rua === 4 && idVisual >= 25 && idVisual <= 44);
     if (isPAR) div.classList.add('par');
 
@@ -573,11 +594,9 @@ function criarElementoPredio(idVisual, contagem, min, max, rua, lado, dadosFiltr
         div.style.backgroundColor = calcularCor(contagem, min, max);
         div.textContent = contagem > 9999 ? (contagem/1000).toFixed(0) + 'k' : formatarNumero(contagem);
 
-        // --- LÓGICA DO TOOLTIP GLOBAL (Sem "filhos" aqui) ---
         const tooltipGlobal = document.getElementById('tooltip-global');
 
         div.addEventListener('mouseenter', () => {
-            // 1. Preparar Conteúdo
             let cA = 0, cB = 0, cC = 0;
             const unicos = new Set();
             
@@ -606,43 +625,36 @@ function criarElementoPredio(idVisual, contagem, min, max, rua, lado, dadosFiltr
                 Posições C: ${cC}
             `;
 
-            // 2. Calcular Posição Global (Fixed)
-            tooltipGlobal.classList.add('visible'); // Mostra para medir tamanho
+            tooltipGlobal.classList.add('visible'); 
             
-            const pRect = div.getBoundingClientRect(); // Retângulo do prédio
-            const tRect = tooltipGlobal.getBoundingClientRect(); // Retângulo do Tooltip
+            const pRect = div.getBoundingClientRect(); 
+            const tRect = tooltipGlobal.getBoundingClientRect(); 
             const vW = window.innerWidth;
 
-            // Define Top vs Bottom (Prioridade: Topo)
             let top = pRect.top - tRect.height - 10;
             let clsPos = 'pos-top';
 
-            // Se não couber em cima, joga pra baixo
             if (pRect.top < tRect.height + 15) {
                 top = pRect.bottom + 10;
                 clsPos = 'pos-bottom';
             }
 
-            // Centraliza horizontalmente
             let left = pRect.left + (pRect.width / 2) - (tRect.width / 2);
 
-            // Clamp (Evita sair pelas laterais)
             let arrowOffset = 0;
             if (left < 5) {
-                arrowOffset = left - 5; // Negativo (estourou esquerda)
+                arrowOffset = left - 5; 
                 left = 5;
             } else if (left + tRect.width > vW - 5) {
                 let newLeft = vW - tRect.width - 5;
-                arrowOffset = left - newLeft; // Positivo (estourou direita)
+                arrowOffset = left - newLeft; 
                 left = newLeft;
             }
             
-            // Correção da Seta (Seta move-se para acompanhar o alvo)
             const targetCenterX = pRect.left + (pRect.width / 2);
             const tooltipCenterX = left + (tRect.width / 2);
             const finalOffset = targetCenterX - tooltipCenterX;
 
-            // Aplica estilos
             tooltipGlobal.style.top = `${top}px`;
             tooltipGlobal.style.left = `${left}px`;
             tooltipGlobal.className = `visible ${clsPos}`;
@@ -825,11 +837,6 @@ function verificarDiscrepancias() {
     console.log(`Total no Mapa:  ${formatarNumero(totalNoMapa)}`);
     console.log(`Ignorados:      ${formatarNumero(totalExcel - totalNoMapa)}`);
 
-    if (totalExcel === totalNoMapa) {
-        console.log("✅ Dados 100% conciliados.");
-        return;
-    }
-
     const ignorados = {};
     dadosConsolidados.forEach(item => {
         const idVisual = obterVisualId(item.rua, item.predio, item.apto);
@@ -844,11 +851,13 @@ function verificarDiscrepancias() {
         }
     });
 
-    console.log("\n⚠️ Principais Locais Ignorados:");
-    console.table(
-        Object.entries(ignorados)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 20)
-            .map(([local, qtd]) => ({ Local: local, Quantidade: qtd }))
-    );
+    if (totalExcel !== totalNoMapa) {
+        console.log("\n⚠️ Principais Locais Ignorados:");
+        console.table(
+            Object.entries(ignorados)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 20)
+                .map(([local, qtd]) => ({ Local: local, Quantidade: qtd }))
+        );
+    }
 }
